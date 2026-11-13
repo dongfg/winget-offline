@@ -1,0 +1,61 @@
+# Build requires a self-hosted Windows runner tagged "windows", with PowerShell 7.
+# CNB checks out the repository automatically. No push/PR build is configured.
+master:
+  web_trigger:
+    - name: Build offline bundle and publish release
+      runner:
+        namespace: group
+        tags: [windows]
+      lock:
+        key: winget-offline-release-maintenance
+        wait: true
+        expires: 7200
+        timeout: 7200
+      stages:
+        - name: Prepare WinGet and YAML tools
+          script: |
+            $ErrorActionPreference = 'Stop'
+            & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/cnb-prepare.ps1
+            exit $LASTEXITCODE
+          timeout: 15m
+        - name: Test bundle processing and HTTP server
+          script: |
+            $ErrorActionPreference = 'Stop'
+            & pwsh -NoProfile -ExecutionPolicy Bypass -File tests/test.ps1
+            exit $LASTEXITCODE
+          timeout: 5m
+        - name: Download and pack
+          script: |
+            $ErrorActionPreference = 'Stop'
+            & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
+            exit $LASTEXITCODE
+          timeout: 60m
+        - name: Verify extracted ZIP with Windows PowerShell 5.1
+          script: |
+            $ErrorActionPreference = 'Stop'
+            & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/cnb-verify.ps1
+            exit $LASTEXITCODE
+          timeout: 5m
+        - name: Upload build attachment and publish timestamped release
+          script: |
+            $ErrorActionPreference = 'Stop'
+            & pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/cnb-release.ps1 -Mode Publish
+            exit $LASTEXITCODE
+          timeout: 15m
+
+  # CNB cron uses Asia/Shanghai, unlike GitHub Actions' UTC schedule.
+  "crontab: 17 4 * * *": &cleanup
+    - name: Keep newest published release
+      docker:
+        image: mcr.microsoft.com/powershell:7.4-debian-12
+      lock:
+        key: winget-offline-release-maintenance
+        wait: true
+        expires: 7200
+        timeout: 7200
+      stages:
+        - name: Clean old CNB releases
+          script: pwsh -NoProfile -File scripts/cnb-release.ps1 -Mode Cleanup
+          timeout: 10m
+
+  web_trigger_cleanup_releases: *cleanup

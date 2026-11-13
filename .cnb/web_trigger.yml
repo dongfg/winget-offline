@@ -1,0 +1,8 @@
+branch:
+  - buttons:
+      - name: 构建离线安装包
+        description: 下载配置的软件，验证 ZIP 并发布北京时间命名的 Release（需要 Windows Runner）
+        event: web_trigger
+      - name: 清理旧 Release
+        description: 仅保留最新一个已发布 Release，保留草稿和 Git 标签
+        event: web_trigger_cleanup_releases

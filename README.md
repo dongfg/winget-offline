@@ -62,6 +62,20 @@ B 机器可以联网。这是“预下载主要安装器以加速安装”，不
 
 ## 本地开发
 
+### CNB 流水线
+
+根目录 `.cnb.yml` 提供对应的 CNB 流程，作用于 CNB **当前仓库**：`master` 分支手动构建、下载打包、自动测试、PowerShell 5.1 验证、上传保留 14 天的 Commit 附件，再发布北京时间 `yyyyMMddHHmmss` 命名的 Release。Release 先创建为草稿，附件上传并确认后才公开和标记 Latest。
+
+CNB 需在根组织的「组织设置 → 构建节点」接入一台 **Windows 自定义 Runner**，标签包含 `windows`，安装 PowerShell 7，并使用具备管理员权限、可运行 WinGet 的账户运行 Runner。CNB 官方 Linux 容器不能直接运行 `winget.exe`；Windows Runner 不配置 Docker 环境。准备阶段会安装 WinGet Client 模块、修复 WinGet 并安装 YAML 模块。
+
+将代码同步到 CNB 的 `master` 分支，在分支详情页点击「构建离线安装包」。页面按钮定义在 `.cnb/web_trigger.yml`，没有 push/PR 自动构建。CNB 使用构建期间注入的 `CNB_TOKEN`、`CNB_API_ENDPOINT`、`CNB_REPO_SLUG`，不需要 GitHub Token；触发者需有当前 CNB 仓库的 Release 和 Commit 附件写权限。
+
+每日北京时间 **04:17** 在 CNB 官方 Linux 节点清理旧 Release，只保留最新一个已发布 Release，草稿、Git 标签及 Commit 附件保留；也可点击「清理旧 Release」手动执行。清理与构建共享仓库锁。CNB cron 直接使用北京时间，表达式是 `17 4 * * *`。推送包含 `.cnb.yml` 的变更后会自动同步定时任务；迁移后若未出现任务，可在「云原生构建 → 定时任务」选择 `master` 手动同步，并确认仓库和组织允许定时触发。
+
+CNB 的 Release、附件和定时任务 API 对照[官方 OpenAPI](https://api.cnb.cool/)及[流水线语法](https://docs.cnb.cool/zh/build/grammar)编写。
+
+### 本机构建
+
 构建需要 PowerShell 7 和 `powershell-yaml`（仅构建机需要该模块）：
 
 ```powershell
