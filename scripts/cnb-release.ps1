@@ -56,23 +56,30 @@ foreach ($name in @('CNB_COMMIT', 'CNB_BUILD_ID')) {
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing CNB environment variable: $name" }
 }
 $root = Split-Path $PSScriptRoot -Parent
-$files = @(Get-ChildItem -LiteralPath "$root/dist" -Filter *.zip -File)
-if ($files.Count -ne 1) { throw 'Expected exactly one bundle ZIP in dist.' }
-$file = $files[0]
+$parts = Get-Content -LiteralPath "$root/dist/bundle-parts.json" -Raw | ConvertFrom-Json
+$names = @('bundle-parts.json', 'extract.cmd', 'extract.ps1') + @($parts.parts | ForEach-Object { $_.name })
+$files = @($names | ForEach-Object {
+    if ([IO.Path]::GetFileName($_) -cne $_) { throw 'Invalid bundle asset name.' }
+    Get-Item -LiteralPath (Join-Path "$root/dist" $_) -ErrorAction Stop
+})
+if (@($parts.parts).Count -eq 0 -or @($files | Where-Object { $_.Length -ge 2GB -or $_.PSIsContainer }).Count -gt 0) {
+    throw 'Missing bundle parts or oversized release asset.'
+}
 $commit = [uri]::EscapeDataString($env:CNB_COMMIT)
 # Commit attachments replace GitHub's build artifacts and expire after 14 days.
 $buildId = $env:CNB_BUILD_ID -replace '[^A-Za-z0-9._-]', '_'
-$buildName = [IO.Path]::GetFileNameWithoutExtension($file.Name) + "-$buildId.zip"
-Send-CnbAttachment "$base/git/commit-assets/$commit" $file 14 $buildName
+foreach ($file in $files) {
+    Send-CnbAttachment "$base/git/commit-assets/$commit" $file 14 "$buildId-$($file.Name)"
+}
 
 $timestamp = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(8)).ToString('yyyyMMddHHmmss')
 $release = Invoke-CnbApi POST "$base/releases" @{
     tag_name = $timestamp; name = $timestamp; target_commitish = $env:CNB_COMMIT
     draft = $true; prerelease = $false; make_latest = 'false'
-    body = "WinGet offline bundle, commit $env:CNB_COMMIT. Extract the ZIP and run install.cmd. WinGet must be installed. Published at $timestamp (Asia/Shanghai)."
+    body = "WinGet offline bundle, commit $env:CNB_COMMIT. Download all ZIP parts, bundle-parts.json, extract.cmd and extract.ps1 from this release into one directory. Run extract.cmd, then install.cmd in the extracted directory. Each part is at most 1 GiB. WinGet must be installed. Published at $timestamp (Asia/Shanghai)."
 }
 $resource = "$base/releases/$([uri]::EscapeDataString($release.id))"
 # On failure leave the draft for inspection; daily cleanup ignores incomplete drafts.
-Send-CnbAttachment $resource $file 0 $file.Name
+foreach ($file in $files) { Send-CnbAttachment $resource $file 0 $file.Name }
 Invoke-CnbApi PATCH $resource @{ draft = $false; make_latest = 'true' } | Out-Null
 Write-Host "Published CNB release $timestamp."

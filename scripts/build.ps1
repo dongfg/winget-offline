@@ -75,14 +75,11 @@ try {
     $lock | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath "$bundle/packages.json" -Encoding utf8
     Copy-Item -LiteralPath "$PSScriptRoot/install.ps1", "$PSScriptRoot/server.ps1", "$PSScriptRoot/install.cmd" -Destination $bundle
     Copy-Item -LiteralPath "$PSScriptRoot/../README.md", "$PSScriptRoot/../LICENSE" -Destination $bundle
-    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
-    $zip = Join-Path $OutputDirectory "winget-offline-$($configData.architecture).zip"
     # .NET ZipFile supports ZIP64 and large installers, unlike Compress-Archive's 2 GB limit.
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $temporaryZip = Join-Path $work 'bundle.zip'
     [IO.Compression.ZipFile]::CreateFromDirectory($bundle, $temporaryZip, [IO.Compression.CompressionLevel]::Fastest, $false)
-    Move-Item -LiteralPath $temporaryZip -Destination $zip -Force
-    Write-Host "Created $zip"
+    & "$PSScriptRoot/split-bundle.ps1" -Archive $temporaryZip -ArchiveName "winget-offline-$($configData.architecture).zip" -OutputDirectory $OutputDirectory
 } finally {
     # Only delete this invocation's freshly generated temp directory.
     if ([IO.Path]::GetFullPath($work).StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase)) {

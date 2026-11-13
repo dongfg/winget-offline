@@ -26,18 +26,18 @@ jobs:
         run: ./tests/test.ps1
       - name: Download and pack
         run: ./scripts/build.ps1
-      - name: Verify extracted ZIP with Windows PowerShell 5.1
-        timeout-minutes: 5
+      - name: Merge, extract and verify with Windows PowerShell 5.1
+        timeout-minutes: 15
         run: |
-          $zip = Get-ChildItem dist/*.zip | Select-Object -First 1
-          Expand-Archive -LiteralPath $zip.FullName -DestinationPath .work/verify
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File dist/extract.ps1 -DestinationDirectory .work/verify
+          if ($LASTEXITCODE -ne 0) { throw 'Bundle extraction failed' }
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .work/verify/install.ps1 -VerifyOnly
           if ($LASTEXITCODE -ne 0) { throw 'Bundle verification failed' }
-      - name: Upload ZIP
+      - name: Upload ZIP parts and extraction scripts
         uses: actions/upload-artifact@v4
         with:
           name: winget-offline-${{ github.run_number }}
-          path: dist/*.zip
+          path: dist/*
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -67,9 +67,10 @@ jobs:
           cat > release-notes.md <<EOF
           WinGet 离线安装包，构建自提交 ${TARGET_SHA}。
 
-          下载下方 ZIP，完整解压后双击 install.cmd。目标机器需要已安装 WinGet。
+          将全部 .zip.001、.zip.002 等切块、bundle-parts.json、extract.cmd 和 extract.ps1 下载到同一目录。
+          双击 extract.cmd 校验、合并并解压，再运行解压目录中的 install.cmd。每块最大 1 GiB，目标机器需要已安装 WinGet。
           发布时间：${timestamp}（北京时间）。
           EOF
           # Publish only after every asset has uploaded successfully.
-          gh release create "$timestamp" dist/*.zip --target "$TARGET_SHA" --title "$timestamp" --notes-file release-notes.md --draft
+          gh release create "$timestamp" dist/* --target "$TARGET_SHA" --title "$timestamp" --notes-file release-notes.md --draft
           gh release edit "$timestamp" --draft=false --latest

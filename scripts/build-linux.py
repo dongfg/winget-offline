@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -348,10 +349,12 @@ def build(config_path, output_directory):
             for path in sorted(bundle.rglob("*")):
                 if path.is_file():
                     output.write(path, path.relative_to(bundle).as_posix())
-        output_directory.mkdir(parents=True, exist_ok=True)
-        destination = output_directory / f"winget-offline-{config['architecture']}.zip"
-        shutil.move(str(archive), destination)
-        print(f"Created {destination}", flush=True)
+        # Both platforms share exactly the same chunk format and Windows bootstrap.
+        subprocess.run([
+            "pwsh", "-NoProfile", "-File", str(ROOT / "scripts" / "split-bundle.ps1"),
+            "-Archive", str(archive), "-ArchiveName", f"winget-offline-{config['architecture']}.zip",
+            "-OutputDirectory", str(output_directory),
+        ], check=True)
 
 
 if __name__ == "__main__":

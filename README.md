@@ -22,7 +22,7 @@
 
 顶层 `parallelDownloads` 控制下载并发数，默认同时处理 **4 个软件**，可设为 1～32 的整数。CNB 和 GitHub Actions 均支持；下载完成后仍按 `packages` 的配置顺序逐个安装，不会并行安装。任一下载或校验失败，构建失败，不发布不完整包。
 
-顶层 `architecture` 默认是 `x64`，也支持 `x86`、`arm64`，需要与目标 Windows 系统架构一致。软件默认使用相同架构；x64 离线包允许个别软件显式指定 `"architecture": "x86"`，例如当前 BCUninstaller。整个 ZIP 仍是 `winget-offline-x64.zip`，不会切换成 x86 包。
+顶层 `architecture` 默认是 `x64`，也支持 `x86`、`arm64`，需要与目标 Windows 系统架构一致。软件默认使用相同架构；x64 离线包允许个别软件显式指定 `"architecture": "x86"`，例如当前 BCUninstaller。整个离线包仍使用 x64 文件名，不会切换成 x86 包。
 
 | 软件配置项 | 说明 |
 | --- | --- |
@@ -61,7 +61,18 @@ Token 只需公开仓库只读访问。也可以删除该 `imports`，不带 Tok
 
 ## 3. 下载安装包
 
-打开 [CNB Releases](https://cnb.cool/dongfg/winget-offline/-/releases) 或 [GitHub 最新 Release](https://github.com/dongfg/winget-offline/releases/latest)，下载附件 **`winget-offline-x64.zip`**（其他架构使用相应文件名）。使用自己的仓库时，在该仓库的 Releases 页面下载。
+打开 [CNB Releases](https://cnb.cool/dongfg/winget-offline/-/releases) 或 [GitHub 最新 Release](https://github.com/dongfg/winget-offline/releases/latest)，将**同一个 Release 的以下所有附件**下载到同一个可写目录：
+
+```text
+winget-offline-x64.zip.001
+winget-offline-x64.zip.002
+……（下载全部编号切块；数量取决于软件总体积）
+bundle-parts.json
+extract.cmd
+extract.ps1
+```
+
+两个平台统一使用普通 ZIP 按字节切块，每块 **1 GiB（1,073,741,824 字节）**，最后一块可小于 1 GiB；不足 1 GiB 的包也输出 `.zip.001`。其他架构使用相应文件名。Windows 自带解压不能直接打开切块，使用附带脚本合并解压即可，无需安装 7-Zip。不要混用不同 Release 的文件，也不要重命名附件。使用自己的仓库时，在该仓库的 Releases 页面下载。
 
 请选择安装包附件，GitHub 的 `Source code` 是项目源码。两个平台每天北京时间 **04:17** 清理旧 Release，仅保留最新一个已发布版本，建议及时下载保存。
 
@@ -69,11 +80,13 @@ Token 只需公开仓库只读访问。也可以删除该 `imports`，不带 Tok
 
 目标机器需要 Windows 10/11、系统自带的 Windows PowerShell 5.1，以及当前稳定版 WinGet。可以先运行 `winget --version` 确认可用，无需安装 Python 或 PowerShell 7。
 
-1. 将 ZIP **完整解压到可写目录**。
-2. 双击 **`install.cmd`**，接受管理员权限提示。
+1. 下载齐所有附件后双击 **`extract.cmd`**。脚本校验每块大小及 SHA256，合并后再校验完整 ZIP，并解压到同目录的 `winget-offline-x64/`。缺块或校验失败会提示文件名；重新下载对应附件后重试。目标文件夹若已存在，先移动或重命名它。合并解压期间会临时保留完整 ZIP，请预留「完整 ZIP 大小 + 解压后文件大小」的额外磁盘空间；结束后临时文件自动删除，下载的切块保留。
+2. 进入解压目录，双击 **`install.cmd`**，接受管理员权限提示。
 3. 软件会按配置依次安装：静默模式自动执行；交互模式需手动完成安装向导，关闭安装器后继续下一个软件。完成后查看窗口中的成功、跳过或失败结果。
 
 安装日志保存在解压目录的 `logs/` 中，包括 `install.log` 和 `results.json`。失败后可以再次运行；WinGet 识别为已安装且没有适用升级的软件会跳过。
+
+需要指定解压目录时，可在 PowerShell 中运行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\extract.ps1 -DestinationDirectory D:\winget-offline`，目标目录必须尚不存在。
 
 脚本会从 ZIP 中的本机 HTTP 服务读取安装器，安装结束后关闭服务。目标机器可以联网；部分厂商安装器仍可能下载额外组件，因此不保证完全断网安装。软件被官方源正确识别后，可继续使用 `winget list`、`winget upgrade`、`winget uninstall` 管理。
 
