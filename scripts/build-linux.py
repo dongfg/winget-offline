@@ -171,38 +171,49 @@ def singleton(documents):
 
 def select_installer(manifest, package, architecture):
     candidates = []
+    rejected = []
+    # PackageLocale describes metadata, not necessarily the language of the installer.
+    # Treat it as a preference unless the user explicitly requests an installer locale.
     desired_locale = package.get("locale", manifest["PackageLocale"]).lower()
     for entry in manifest.get("Installers", []):
         effective = {**manifest, **entry}
         arch, kind = effective.get("Architecture"), effective.get("InstallerType")
         scope, locale = effective.get("Scope"), effective.get("InstallerLocale", "").lower()
+        label = f"{arch}/{kind}/{scope or 'unspecified'}/{locale or 'any-language'}"
         if arch not in {architecture, "neutral"} or kind not in TYPES:
+            rejected.append(f"{label}: incompatible architecture or unsupported installer type")
             continue
         nested_type = effective.get("NestedInstallerType") if kind == "zip" else None
         if kind == "zip" and (nested_type not in TYPES or nested_type == "zip"
                               or not effective.get("NestedInstallerFiles")):
+            rejected.append(f"{label}: missing or unsupported ZIP nested installer metadata")
             continue
         effective_type = nested_type or kind
         if (package.get("scope") and scope != package["scope"]
                 and not (scope is None and effective_type == "portable")):
+            rejected.append(f"{label}: scope does not match {package['scope']}")
             continue
         if package.get("installerType") and kind != package["installerType"]:
+            rejected.append(f"{label}: installerType does not match {package['installerType']}")
             continue
-        if locale and locale != desired_locale:
+        if package.get("locale") and locale and locale != desired_locale:
+            rejected.append(f"{label}: locale does not match explicit locale {desired_locale}")
             continue
         if effective.get("DownloadCommandProhibited") or effective.get("Authentication"):
+            rejected.append(f"{label}: downloads prohibited or authentication required")
             continue
         # Do not bypass dependencies inherited from either level.
         if manifest.get("Dependencies") or entry.get("Dependencies"):
+            rejected.append(f"{label}: additional dependencies are not supported")
             continue
+        locale_rank = 0 if locale == desired_locale else 1 if not locale else 2
         rank = (arch != architecture, {"machine": 0, "user": 1, None: 2}.get(scope, 3),
-                locale != desired_locale, TYPE_ORDER[kind])
+                locale_rank, TYPE_ORDER[kind])
         candidates.append((rank, entry, kind))
     if not candidates:
         raise ValueError(
-            f"{package['id']}: no supported dependency-free installer matches architecture, "
-            "scope, installerType and locale; ZIP requires supported NestedInstallerType "
-            "and NestedInstallerFiles; Store and authenticated downloads are excluded"
+            f"{package['id']}: no supported installer matches the configuration. "
+            + ("; ".join(rejected) if rejected else "Manifest contains no installers")
         )
     best = min(item[0] for item in candidates)
     matches = [item for item in candidates if item[0] == best]
