@@ -39,7 +39,7 @@ try {
     }
     $lock | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath "$bundle/packages.json" -Encoding utf8
     Copy-Item -LiteralPath "$PSScriptRoot/install.ps1", "$PSScriptRoot/server.ps1", "$PSScriptRoot/install.cmd" -Destination $bundle
-    Copy-Item -LiteralPath "$PSScriptRoot/../README.md" -Destination $bundle
+    Copy-Item -LiteralPath "$PSScriptRoot/../README.md", "$PSScriptRoot/../LICENSE" -Destination $bundle
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
     $zip = Join-Path $OutputDirectory "winget-offline-$($configData.architecture).zip"
     # .NET ZipFile supports ZIP64 and large installers, unlike Compress-Archive's 2 GB limit.

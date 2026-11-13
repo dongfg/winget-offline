@@ -266,7 +266,8 @@ def build(config_path, output_directory):
         (bundle / "packages.json").write_text(json.dumps(lock, ensure_ascii=False, indent=2), encoding="utf-8")
         for name in ("install.ps1", "server.ps1", "install.cmd"):
             shutil.copyfile(ROOT / "scripts" / name, bundle / name)
-        shutil.copyfile(ROOT / "README.md", bundle / "README.md")
+        for name in ("README.md", "LICENSE"):
+            shutil.copyfile(ROOT / name, bundle / name)
         # Write outside dist first so a failed build cannot expose an incomplete ZIP.
         archive = work / "bundle.zip"
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as output:
