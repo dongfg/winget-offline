@@ -13,12 +13,12 @@
   "packages": [
     { "id": "Git.Git", "installMode": "interactive" },
     { "id": "Microsoft.VisualStudioCode", "scope": "user" },
-    { "id": "7zip.7zip" }
+    { "id": "OpenAI.ChatGPT", "installMode": "silent" }
   ]
 }
 ```
 
-仓库默认包含 33 个软件：图形应用使用交互式安装，命令行和后台工具使用静默安装；Git 为交互式，ChatGPT 和 7-Zip 为静默，VS Code 使用 `scope: user`。可以按需删改软件列表。
+仓库默认包含 20 个软件：图形应用使用交互式安装，命令行和后台工具使用静默安装；Git 为交互式，ChatGPT 为静默，VS Code 使用 `scope: user`。可以按需删改软件列表。
 
 顶层 `parallelDownloads` 控制下载并发数，默认同时处理 **4 个软件**，可设为 1～32 的整数。CNB 和 GitHub Actions 均支持；下载完成后仍按 `packages` 的配置顺序逐个安装，不会并行安装。任一下载或校验失败，构建失败，不发布不完整包。
 
