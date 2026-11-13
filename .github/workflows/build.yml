@@ -27,6 +27,7 @@ jobs:
       - name: Download and pack
         run: ./scripts/build.ps1
       - name: Verify extracted ZIP with Windows PowerShell 5.1
+        timeout-minutes: 5
         run: |
           $zip = Get-ChildItem dist/*.zip | Select-Object -First 1
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath .work/verify

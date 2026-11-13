@@ -2,6 +2,8 @@
 [CmdletBinding()]
 param([switch]$VerifyOnly)
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 progress rendering makes large Invoke-WebRequest transfers very slow.
+$ProgressPreference = 'SilentlyContinue'
 Set-StrictMode -Version Latest
 $bundle = $PSScriptRoot
 $job = $null
@@ -65,6 +67,7 @@ try {
     if ($VerifyOnly) {
         foreach ($package in $lock.packages) {
             foreach ($payload in $package.payloads) {
+                Write-Host "Verifying local HTTP transfer: $($package.id) $($package.version)..."
                 $target = Join-Path $temp 'http-check'
                 Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/$($payload.path)" -OutFile $target -TimeoutSec 120
                 if ((Get-FileHash -LiteralPath $target).Hash -ne $payload.sha256) { throw 'HTTP payload checksum mismatch.' }
