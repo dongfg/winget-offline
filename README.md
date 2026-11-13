@@ -23,9 +23,11 @@
 - `scope`：可选，`user` 或 `machine`，由包自身支持情况决定。
 - `installerType`、`locale`：可选，传给 `winget download` 的安装器类型和语言筛选。
 
-推送仓库后，在 **Actions → Build offline bundle → Run workflow** 手动运行，完成后下载页面底部的 artifact。Action **只有 `workflow_dispatch`**，push、PR 和定时任务均不会触发；不会创建 Release。
+推送仓库后，在 **Actions → Build offline bundle → Run workflow** 手动运行。构建、测试和 ZIP 验证全部成功后，自动发布 GitHub Release，名称和标签使用北京时间的 `yyyyMMddHHmmss`（年月日时分秒），例如 `20261113153045`。从仓库 **Releases** 页面直接下载 ZIP，解压后安装。发布先创建草稿并上传附件，附件上传成功后才公开并标记为 Latest。
 
-GitHub artifact 外层 ZIP 中包含 `winget-offline-x64.zip`（或相应架构）。解压内层 ZIP 后安装。任意下载、哈希校验或清单转换失败，整个构建失败，不发布不完整包。Artifact 保留 14 天，可在 workflow 中修改。
+构建流程仍只有 `workflow_dispatch`，push、PR 和定时任务均不会触发构建。独立的 **Clean old releases** 流程每天北京时间 **04:17** 执行（GitHub 可能延迟调度），按发布时间仅保留最新一个已发布 Release，删除其余 Release 及附件；草稿和 Git 标签会保留。也可在 Actions 页面手动触发清理。发布和清理共享并发锁，避免清理与发布同时执行。
+
+Action 仍额外保留 artifact 作为构建记录，外层 ZIP 中包含 `winget-offline-x64.zip`（或相应架构）。从 artifact 下载时需要再解压内层 ZIP。任意下载、哈希校验或清单转换失败，整个构建失败，不发布不完整包。Artifact 保留 14 天，可在 workflow 中修改；每日 Release 清理不会删除 artifact。
 
 ## 在目标机器安装
 

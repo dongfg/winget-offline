@@ -41,3 +41,35 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-maintenance
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: winget-offline-${{ github.run_number }}
+          path: dist
+      - name: Publish timestamped release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          timestamp=$(TZ=Asia/Shanghai date +%Y%m%d%H%M%S)
+          cat > release-notes.md <<EOF
+          WinGet 离线安装包，构建自提交 ${TARGET_SHA}。
+
+          下载下方 ZIP，完整解压后双击 install.cmd。目标机器需要已安装 WinGet。
+          发布时间：${timestamp}（北京时间）。
+          EOF
+          # Publish only after every asset has uploaded successfully.
+          gh release create "$timestamp" dist/*.zip --target "$TARGET_SHA" --title "$timestamp" --notes-file release-notes.md --draft
+          gh release edit "$timestamp" --draft=false --latest

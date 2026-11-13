@@ -1,0 +1,29 @@
+name: Clean old releases
+
+on:
+  schedule:
+    # Daily at 04:17 Asia/Shanghai (20:17 UTC).
+    - cron: '17 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-maintenance
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test release retention rules
+        run: node --test tests/cleanup-releases.test.cjs
+      - name: Keep newest published release
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const cleanup = require('./.github/scripts/cleanup-releases.cjs');
+            await cleanup({ github, context, core });
