@@ -1,5 +1,6 @@
 {
   "architecture": "x64",
+  "parallelDownloads": 4,
   "packages": [
     { "id": "Klocman.BulkCrapUninstaller", "architecture": "x86", "installMode": "interactive" },
     { "id": "Bitwarden.Bitwarden", "installMode": "interactive" },

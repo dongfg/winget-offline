@@ -9,6 +9,7 @@
 ```json
 {
   "architecture": "x64",
+  "parallelDownloads": 4,
   "packages": [
     { "id": "Git.Git", "installMode": "interactive" },
     { "id": "Microsoft.VisualStudioCode", "scope": "user" },
@@ -18,6 +19,8 @@
 ```
 
 仓库默认包含 33 个软件：图形应用使用交互式安装，命令行和后台工具使用静默安装；Git 为交互式，ChatGPT 和 7-Zip 为静默，VS Code 使用 `scope: user`。可以按需删改软件列表。
+
+顶层 `parallelDownloads` 控制下载并发数，默认同时处理 **4 个软件**，可设为 1～32 的整数。CNB 和 GitHub Actions 均支持；下载完成后仍按 `packages` 的配置顺序逐个安装，不会并行安装。任一下载或校验失败，构建失败，不发布不完整包。
 
 顶层 `architecture` 默认是 `x64`，也支持 `x86`、`arm64`，需要与目标 Windows 系统架构一致。软件默认使用相同架构；x64 离线包允许个别软件显式指定 `"architecture": "x86"`，例如当前 BCUninstaller。整个 ZIP 仍是 `winget-offline-x64.zip`，不会切换成 x86 包。
 

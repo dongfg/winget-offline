@@ -2,6 +2,7 @@
 
 import argparse
 import copy
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
@@ -227,6 +228,9 @@ def validate_config(config):
         raise ValueError("architecture must be x64, x86 or arm64")
     if not isinstance(config.get("packages"), list) or not config["packages"]:
         raise ValueError("packages must be a non-empty array")
+    concurrency = config.get("parallelDownloads", 4)
+    if type(concurrency) is not int or not 1 <= concurrency <= 32:
+        raise ValueError("parallelDownloads must be an integer between 1 and 32")
     seen = set()
     for package in config["packages"]:
         identifier = package.get("id", "")
@@ -253,6 +257,47 @@ def validate_config(config):
             raise ValueError(f"{identifier}: unsupported installerType")
 
 
+def prepare_package(package, bundle_architecture, snapshot, work):
+    """Each worker writes only to its own package directory, including payloads."""
+    identifier = package["id"]
+    source = work / identifier
+    source.mkdir()
+    version, documents = load_manifests(package, snapshot, source)
+    manifest = singleton(documents)
+    architecture = package.get("architecture", bundle_architecture)
+    installer, kind = select_installer(manifest, package, architecture)
+    effective_type = (installer.get("NestedInstallerType", manifest.get("NestedInstallerType"))
+                      if kind == "zip" else kind)
+    # The Windows entry point runs elevated; portable user scope rejects elevated tokens.
+    scope = package.get("scope", "machine" if effective_type == "portable" else None)
+    digest = installer.get("InstallerSha256", "")
+    if not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+        raise ValueError(f"{identifier}: invalid InstallerSha256")
+    original_url = installer["InstallerUrl"]
+    payload = f"packages/{digest.lower()}{TYPES[kind]}"
+    payload_file = source / (digest.lower() + TYPES[kind])
+    print(f"Downloading {identifier} {version} ({kind}, {installer.get('Scope', manifest.get('Scope', 'unspecified'))})...", flush=True)
+    download(original_url, payload_file, digest)
+    installer["InstallerUrl"] = f"http://127.0.0.1:__PORT__/{payload}"
+    manifest["Installers"] = [installer]
+    manifest_path = f"manifests/{identifier}.yaml"
+    manifest_file = source / "offline.yaml"
+    manifest_file.write_text(
+        yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    entry = {
+        "id": identifier, "version": version, "manifest": manifest_path,
+        "manifestSha256": hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
+        "scope": scope,
+        "architecture": architecture,
+        "installMode": package.get("installMode", "silent"),
+        "payloads": [{"path": payload, "sha256": digest, "originalUrl": original_url,
+                      "installerType": kind, "effectiveInstallerType": effective_type}],
+    }
+    print(f"Prepared {identifier} {version}", flush=True)
+    return entry, payload_file, manifest_file
+
+
 def build(config_path, output_directory):
     config = json.loads(config_path.read_text(encoding="utf-8-sig"))
     validate_config(config)
@@ -266,40 +311,32 @@ def build(config_path, output_directory):
         bundle = work / "bundle"
         (bundle / "packages").mkdir(parents=True)
         (bundle / "manifests").mkdir()
-        for package in config["packages"]:
-            identifier = package["id"]
-            source = work / identifier
-            source.mkdir()
-            version, documents = load_manifests(package, snapshot, source)
-            manifest = singleton(documents)
-            architecture = package.get("architecture", config["architecture"])
-            installer, kind = select_installer(manifest, package, architecture)
-            effective_type = (installer.get("NestedInstallerType", manifest.get("NestedInstallerType"))
-                              if kind == "zip" else kind)
-            # The Windows entry point runs elevated; portable user scope rejects elevated tokens.
-            scope = package.get("scope", "machine" if effective_type == "portable" else None)
-            digest = installer.get("InstallerSha256", "")
-            if not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
-                raise ValueError(f"{identifier}: invalid InstallerSha256")
-            original_url = installer["InstallerUrl"]
-            payload = f"packages/{digest.lower()}{TYPES[kind]}"
-            print(f"Downloading {identifier} {version} ({kind}, {installer.get('Scope', manifest.get('Scope', 'unspecified'))})...", flush=True)
-            download(original_url, bundle / payload, digest)
-            installer["InstallerUrl"] = f"http://127.0.0.1:__PORT__/{payload}"
-            manifest["Installers"] = [installer]
-            manifest_path = f"manifests/{identifier}.yaml"
-            (bundle / manifest_path).write_text(
-                yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False), encoding="utf-8"
-            )
-            lock["packages"].append({
-                "id": identifier, "version": version, "manifest": manifest_path,
-                "manifestSha256": hashlib.sha256((bundle / manifest_path).read_bytes()).hexdigest(),
-                "scope": scope,
-                "architecture": architecture,
-                "installMode": package.get("installMode", "silent"),
-                "payloads": [{"path": payload, "sha256": digest, "originalUrl": original_url,
-                              "installerType": kind, "effectiveInstallerType": effective_type}],
-            })
+        concurrency = config.get("parallelDownloads", 4)
+        entries = [None] * len(config["packages"])
+        print(f"Downloading with up to {concurrency} packages in parallel...", flush=True)
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = {
+                executor.submit(prepare_package, package, config["architecture"], snapshot, work): index
+                for index, package in enumerate(config["packages"])
+            }
+            try:
+                for future in as_completed(futures):
+                    try:
+                        entry, payload_file, manifest_file = future.result()
+                    except Exception as error:
+                        identifier = config["packages"][futures[future]]["id"]
+                        raise RuntimeError(f"Download failed for {identifier}: {error}") from error
+                    # Only the main thread merges files; shared hashes cannot race.
+                    shutil.copyfile(payload_file, bundle / entry["payloads"][0]["path"])
+                    shutil.copyfile(manifest_file, bundle / entry["manifest"])
+                    entries[futures[future]] = entry
+            except BaseException:
+                for future in futures:
+                    future.cancel()
+                # The context manager waits for active workers before temp cleanup.
+                raise
+        # Completion order never changes the serial installation order.
+        lock["packages"] = entries
         (bundle / "packages.json").write_text(json.dumps(lock, ensure_ascii=False, indent=2), encoding="utf-8")
         for name in ("install.ps1", "server.ps1", "install.cmd"):
             shutil.copyfile(ROOT / "scripts" / name, bundle / name)
