@@ -1,0 +1,42 @@
+name: Build offline bundle
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare WinGet and YAML tools
+        run: |
+          Install-Module Microsoft.WinGet.Client -Repository PSGallery -Scope CurrentUser -Force
+          Repair-WinGetPackageManager -AllUsers
+          Install-Module powershell-yaml -RequiredVersion 0.4.12 -Repository PSGallery -Scope CurrentUser -Force
+          winget --version
+          if ($LASTEXITCODE -ne 0) { throw 'WinGet is unavailable' }
+      - name: Test bundle processing and HTTP server
+        run: ./tests/test.ps1
+      - name: Download and pack
+        run: ./scripts/build.ps1
+      - name: Verify extracted ZIP with Windows PowerShell 5.1
+        run: |
+          $zip = Get-ChildItem dist/*.zip | Select-Object -First 1
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath .work/verify
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .work/verify/install.ps1 -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Bundle verification failed' }
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: winget-offline-${{ github.run_number }}
+          path: dist/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

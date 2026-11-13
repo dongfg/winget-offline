@@ -1,0 +1,8 @@
+{
+  "architecture": "x64",
+  "packages": [
+    { "id": "Git.Git" },
+    { "id": "Microsoft.VisualStudioCode", "scope": "user" },
+    { "id": "7zip.7zip" }
+  ]
+}
