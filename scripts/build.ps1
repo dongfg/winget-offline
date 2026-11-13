@@ -35,24 +35,38 @@ try {
     $lock = [ordered]@{ schemaVersion = 1; architecture = $configData.architecture; builtAt = [DateTime]::UtcNow.ToString('o'); packages = @() }
     $bundleArchitecture = $configData.architecture
     $downloadFailures = [Collections.Concurrent.ConcurrentDictionary[string,string]]::new()
+    $downloadDirectories = [Collections.Concurrent.ConcurrentDictionary[string,string]]::new()
     Write-Host "Downloading with up to $parallelDownloads packages in parallel..."
     $configData.packages | ForEach-Object -ThrottleLimit $parallelDownloads -Parallel {
         $ErrorActionPreference = 'Stop'
         $failures = $using:downloadFailures
-        # Stop starting queued downloads after a failure; finish active work before cleanup.
+        $completed = $using:downloadDirectories
+        # Only stop queued downloads after a package has exhausted its retry.
         if (-not $failures.IsEmpty) { return }
         $package = $_
         try {
-            $download = Join-Path $using:work $package.id
             $packageArchitecture = if ($package.ContainsKey('architecture')) { $package.architecture } else { $using:bundleArchitecture }
             $arguments = @('download', '--id', $package.id, '--exact', '--source', 'winget', '--architecture', $packageArchitecture,
-                '--download-directory', $download, '--skip-dependencies', '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
+                '--skip-dependencies', '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
             foreach ($mapping in @(@('version','--version'), @('scope','--scope'), @('installerType','--installer-type'), @('locale','--locale'))) {
                 if ($package.ContainsKey($mapping[0])) { $arguments += @($mapping[1], [string]$package[$mapping[0]]) }
             }
-            Write-Host "[$($package.id)] Starting download..."
-            & $using:wingetPath @arguments
-            if ($LASTEXITCODE -ne 0) { throw "WinGet exited with $LASTEXITCODE" }
+            for ($attempt = 1; $attempt -le 2; $attempt++) {
+                # A fresh directory avoids failed downloads or manifests from the first
+                # attempt interfering with WinGet or installer selection on retry.
+                $download = Join-Path $using:work "$($package.id)/attempt-$attempt"
+                try {
+                    Write-Host "[$($package.id)] Starting download (attempt $attempt/2)..."
+                    & $using:wingetPath @arguments --download-directory $download
+                    if ($LASTEXITCODE -ne 0) { throw "WinGet exited with $LASTEXITCODE" }
+                    $completed[$package.id] = $download
+                    break
+                } catch {
+                    if ($attempt -eq 2) { throw }
+                    Write-Warning "[$($package.id)] Download failed: $($_.Exception.Message). Retrying this package in 5 seconds..."
+                    Start-Sleep -Seconds 5
+                }
+            }
         } catch {
             $failures[$package.id] = $_.Exception.Message
         }
@@ -64,7 +78,7 @@ try {
     # Merge only after all workers finish, in configuration order. Shared payload hashes
     # are copied serially to avoid concurrent writes when two packages share a file.
     foreach ($package in $configData.packages) {
-        $download = Join-Path $work $package.id
+        $download = $downloadDirectories[$package.id]
         $packageArchitecture = if ($package.ContainsKey('architecture')) { $package.architecture } else { $configData.architecture }
         $entry = ConvertTo-OfflinePackage $download $bundle $package.id $packageArchitecture
         $entry.architecture = $packageArchitecture
