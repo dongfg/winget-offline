@@ -211,12 +211,14 @@ def validate_config(config):
             raise ValueError(f"Duplicate package: {identifier}")
         seen.add(identifier.lower())
         for key, value in package.items():
-            if key not in {"id", "version", "scope", "installerType", "locale"}:
+            if key not in {"id", "version", "scope", "installerType", "locale", "installMode"}:
                 raise ValueError(f"Unknown package option: {key}")
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{identifier}: {key} must be a non-empty string")
         if "scope" in package and package["scope"] not in {"user", "machine"}:
             raise ValueError(f"{identifier}: invalid scope")
+        if package.get("installMode", "silent") not in {"silent", "interactive"}:
+            raise ValueError(f"{identifier}: installMode must be silent or interactive")
         if "version" in package and any(c in package["version"] for c in ("/", "\\")):
             raise ValueError(f"{identifier}: invalid version path")
         if "installerType" in package and package["installerType"] not in TYPES:
@@ -260,6 +262,7 @@ def build(config_path, output_directory):
                 "id": identifier, "version": version, "manifest": manifest_path,
                 "manifestSha256": hashlib.sha256((bundle / manifest_path).read_bytes()).hexdigest(),
                 "scope": package.get("scope"),
+                "installMode": package.get("installMode", "silent"),
                 "payloads": [{"path": payload, "sha256": digest, "originalUrl": original_url,
                               "installerType": kind}],
             })

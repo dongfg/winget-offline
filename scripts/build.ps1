@@ -13,10 +13,11 @@ foreach ($package in $configData.packages) {
     if ($package.id -notmatch '^[A-Za-z0-9][A-Za-z0-9._+-]+$' -or $seen.ContainsKey($package.id)) { throw "Invalid or duplicate package ID: $($package.id)" }
     $seen[$package.id] = $true
     foreach ($key in $package.Keys) {
-        if ($key -notin @('id', 'version', 'scope', 'installerType', 'locale')) { throw "Unknown package option: $key" }
+        if ($key -notin @('id', 'version', 'scope', 'installerType', 'locale', 'installMode')) { throw "Unknown package option: $key" }
         if ([string]::IsNullOrWhiteSpace([string]$package[$key])) { throw "Empty option: $key" }
     }
     if ($package.ContainsKey('scope') -and $package.scope -notin @('user', 'machine')) { throw 'Invalid scope' }
+    if ($package.ContainsKey('installMode') -and $package.installMode -cnotin @('silent', 'interactive')) { throw 'installMode must be silent or interactive' }
 }
 Get-Command winget -ErrorAction Stop | Out-Null
 $work = Join-Path ([IO.Path]::GetTempPath()) ("winget-offline-" + [guid]::NewGuid())
@@ -35,6 +36,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Download failed for $($package.id): $LASTEXITCODE" }
         $entry = ConvertTo-OfflinePackage $download $bundle $package.id $configData.architecture
         $entry.scope = if ($package.ContainsKey('scope')) { $package.scope } else { $null }
+        $entry.installMode = if ($package.ContainsKey('installMode')) { $package.installMode } else { 'silent' }
         $lock.packages += $entry
     }
     $lock | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath "$bundle/packages.json" -Encoding utf8

@@ -43,6 +43,9 @@ try {
     $transcribing = $true
     Write-Host 'Checking all manifests and installers before starting...'
     foreach ($package in $lock.packages) {
+        if ($package.PSObject.Properties['installMode'] -and $package.installMode -cnotin @('silent', 'interactive')) {
+            throw "Invalid installMode for $($package.id): $($package.installMode)"
+        }
         $path = Get-BundlePath $package.manifest
         if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $package.manifestSha256) { throw "Manifest checksum mismatch: $($package.id)" }
         foreach ($payload in $package.payloads) {
@@ -90,8 +93,15 @@ try {
             $template = Get-Content -LiteralPath (Get-BundlePath $package.manifest) -Raw -Encoding UTF8
             $manifest = Join-Path $temp ([IO.Path]::GetFileName($package.manifest))
             [IO.File]::WriteAllText($manifest, $template.Replace('http://127.0.0.1:__PORT__/', "http://127.0.0.1:$port/"), (New-Object Text.UTF8Encoding($false)))
-            Write-Host "Installing $($package.id) $($package.version)..."
-            $arguments = @('install', '--manifest', $manifest, '--architecture', $lock.architecture, '--silent', '--disable-interactivity', '--accept-package-agreements', '--accept-source-agreements', '--skip-dependencies')
+            # Older bundles without this property retain the original silent behavior.
+            $installMode = if ($package.PSObject.Properties['installMode']) { $package.installMode } else { 'silent' }
+            Write-Host "Installing $($package.id) $($package.version) ($installMode)..."
+            $arguments = @('install', '--manifest', $manifest, '--architecture', $lock.architecture, '--accept-package-agreements', '--accept-source-agreements', '--skip-dependencies')
+            if ($installMode -eq 'interactive') {
+                $arguments += '--interactive'
+            } else {
+                $arguments += @('--silent', '--disable-interactivity')
+            }
             if ($package.scope) { $arguments += @('--scope', $package.scope) }
             & winget @arguments
             $code = $LASTEXITCODE

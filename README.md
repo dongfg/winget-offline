@@ -10,7 +10,7 @@
 {
   "architecture": "x64",
   "packages": [
-    { "id": "Git.Git" },
+    { "id": "Git.Git", "installMode": "interactive" },
     { "id": "Microsoft.VisualStudioCode", "scope": "user" },
     { "id": "7zip.7zip" }
   ]
@@ -24,10 +24,13 @@
 | `id` | 必填，WinGet 官方源中的精确软件 ID，可用 `winget search 软件名` 查询 |
 | `version` | 可选，字符串，指定要下载的版本；CNB 省略时选择最新数字版本，特殊版本号需明确指定 |
 | `scope` | 可选，`user` 或 `machine`，分别表示当前用户安装和所有用户安装 |
+| `installMode` | 可选，`silent`（默认）或 `interactive`；后者显示安装向导，供你手动选择组件 |
 | `installerType` | 可选，筛选安装器类型，例如 `inno`、`exe`、`msi`、`wix`；CNB 必须与清单类型完全一致 |
 | `locale` | 可选，筛选安装器语言，例如 `zh-CN`、`en-US` |
 
 可选字段需要软件本身支持。优先选择完整安装器；当前不支持 Microsoft Store、portable、ZIP 安装器及声明了额外依赖的安装器。无法确定安装器或校验失败时，构建会报错。
+
+例如上面的 Git 配置会显示安装向导，可取消右键菜单集成等选项；其他软件未设置 `installMode`，仍为静默安装。仓库默认配置保持全部静默，需要时将对应软件的 `installMode` 改为 `interactive`，再重新构建下载。
 
 使用自己的 CNB 仓库时，将 `.cnb.yml` 下载步骤中的 `imports` 改为自己的密钥文件地址，文件内容为：
 
@@ -60,7 +63,7 @@ Token 只需公开仓库只读访问。也可以删除该 `imports`，不带 Tok
 
 1. 将 ZIP **完整解压到可写目录**。
 2. 双击 **`install.cmd`**，接受管理员权限提示。
-3. 等待软件依次静默安装，完成后查看窗口中的成功、跳过或失败结果。
+3. 软件会按配置依次安装：静默模式自动执行；交互模式需手动完成安装向导，关闭安装器后继续下一个软件。完成后查看窗口中的成功、跳过或失败结果。
 
 安装日志保存在解压目录的 `logs/` 中，包括 `install.log` 和 `results.json`。失败后可以再次运行；WinGet 识别为已安装且没有适用升级的软件会跳过。
 

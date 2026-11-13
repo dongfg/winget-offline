@@ -1,7 +1,7 @@
 {
   "architecture": "x64",
   "packages": [
-    { "id": "Git.Git" },
+    { "id": "Git.Git", "installMode": "silent" },
     { "id": "Microsoft.VisualStudioCode", "scope": "user" },
     { "id": "7zip.7zip" }
   ]
