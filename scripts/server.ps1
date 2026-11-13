@@ -26,7 +26,7 @@ try {
             $status = '404 Not Found'
             $file = $null
             $headOnly = $false
-            if ($line -match '^(GET|HEAD) /packages/([a-f0-9]{64}\.(?:exe|msi|msix)) HTTP/1\.[01]$') {
+            if ($line -match '^(GET|HEAD) /packages/([a-f0-9]{64}\.(?:exe|msi|msix|zip)) HTTP/1\.[01]$') {
                 $headOnly = $Matches[1] -eq 'HEAD'
                 $candidate = Join-Path $Root $Matches[2]
                 if (Test-Path -LiteralPath $candidate -PathType Leaf) { $file = Get-Item -LiteralPath $candidate; $status = '200 OK' }

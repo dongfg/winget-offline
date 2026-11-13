@@ -13,11 +13,15 @@ foreach ($package in $configData.packages) {
     if ($package.id -notmatch '^[A-Za-z0-9][A-Za-z0-9._+-]+$' -or $seen.ContainsKey($package.id)) { throw "Invalid or duplicate package ID: $($package.id)" }
     $seen[$package.id] = $true
     foreach ($key in $package.Keys) {
-        if ($key -notin @('id', 'version', 'scope', 'installerType', 'locale', 'installMode')) { throw "Unknown package option: $key" }
+        if ($key -notin @('id', 'version', 'scope', 'installerType', 'locale', 'installMode', 'architecture')) { throw "Unknown package option: $key" }
         if ([string]::IsNullOrWhiteSpace([string]$package[$key])) { throw "Empty option: $key" }
     }
     if ($package.ContainsKey('scope') -and $package.scope -notin @('user', 'machine')) { throw 'Invalid scope' }
     if ($package.ContainsKey('installMode') -and $package.installMode -cnotin @('silent', 'interactive')) { throw 'installMode must be silent or interactive' }
+    $packageArchitecture = if ($package.ContainsKey('architecture')) { $package.architecture } else { $configData.architecture }
+    if ($packageArchitecture -cne $configData.architecture -and -not ($configData.architecture -eq 'x64' -and $packageArchitecture -ceq 'x86')) {
+        throw "$($package.id): architecture must match the bundle, or be x86 for an x64 bundle"
+    }
 }
 Get-Command winget -ErrorAction Stop | Out-Null
 $work = Join-Path ([IO.Path]::GetTempPath()) ("winget-offline-" + [guid]::NewGuid())
@@ -27,15 +31,17 @@ try {
     $lock = [ordered]@{ schemaVersion = 1; architecture = $configData.architecture; builtAt = [DateTime]::UtcNow.ToString('o'); packages = @() }
     foreach ($package in $configData.packages) {
         $download = Join-Path $work $package.id
-        $arguments = @('download', '--id', $package.id, '--exact', '--source', 'winget', '--architecture', $configData.architecture,
+        $packageArchitecture = if ($package.ContainsKey('architecture')) { $package.architecture } else { $configData.architecture }
+        $arguments = @('download', '--id', $package.id, '--exact', '--source', 'winget', '--architecture', $packageArchitecture,
             '--download-directory', $download, '--skip-dependencies', '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
         foreach ($mapping in @(@('version','--version'), @('scope','--scope'), @('installerType','--installer-type'), @('locale','--locale'))) {
             if ($package.ContainsKey($mapping[0])) { $arguments += @($mapping[1], [string]$package[$mapping[0]]) }
         }
         & winget @arguments
         if ($LASTEXITCODE -ne 0) { throw "Download failed for $($package.id): $LASTEXITCODE" }
-        $entry = ConvertTo-OfflinePackage $download $bundle $package.id $configData.architecture
-        $entry.scope = if ($package.ContainsKey('scope')) { $package.scope } else { $null }
+        $entry = ConvertTo-OfflinePackage $download $bundle $package.id $packageArchitecture
+        $entry.architecture = $packageArchitecture
+        $entry.scope = if ($package.ContainsKey('scope')) { $package.scope } elseif ($entry.payloads[0].effectiveInstallerType -eq 'portable') { 'machine' } else { $null }
         $entry.installMode = if ($package.ContainsKey('installMode')) { $package.installMode } else { 'silent' }
         $lock.packages += $entry
     }

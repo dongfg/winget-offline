@@ -15,13 +15,23 @@ function ConvertTo-OfflinePackage {
     }
     $selected = @()
     $payloads = @()
+    $extensions = @{ exe = '.exe'; inno = '.exe'; nullsoft = '.exe'; burn = '.exe'; msi = '.msi'; wix = '.msi'; msix = '.msix'; appx = '.msix'; portable = '.exe'; zip = '.zip' }
     foreach ($installer in $manifest.Installers) {
         $hash = [string]$installer.InstallerSha256
         if (-not $byHash.ContainsKey($hash)) { continue }
         if ($installer.Architecture -notin @($Architecture, 'neutral')) { continue }
         $type = if ($installer.Contains('InstallerType')) { $installer.InstallerType } else { $manifest.InstallerType }
-        if ($type -notin @('exe', 'inno', 'nullsoft', 'burn', 'msi', 'wix', 'msix')) {
-            throw "$Id : unsupported installer type '$type' (portable, ZIP and Store are excluded in V1)"
+        if (-not $extensions.ContainsKey($type)) {
+            throw "$Id : unsupported installer type '$type'"
+        }
+        $effectiveType = $type
+        if ($type -eq 'zip') {
+            $nestedType = if ($installer.Contains('NestedInstallerType')) { $installer.NestedInstallerType } elseif ($manifest.Contains('NestedInstallerType')) { $manifest.NestedInstallerType } else { '' }
+            $nestedFiles = if ($installer.Contains('NestedInstallerFiles')) { $installer.NestedInstallerFiles } elseif ($manifest.Contains('NestedInstallerFiles')) { $manifest.NestedInstallerFiles } else { @() }
+            if (-not $extensions.ContainsKey($nestedType) -or $nestedType -eq 'zip' -or @($nestedFiles).Count -eq 0) {
+                throw "$Id : ZIP requires supported NestedInstallerType and NestedInstallerFiles"
+            }
+            $effectiveType = $nestedType
         }
         foreach ($node in @($manifest, $installer)) {
             if ($node.Contains('Dependencies') -and $node.Dependencies.Count -gt 0) {
@@ -29,12 +39,12 @@ function ConvertTo-OfflinePackage {
             }
         }
         $file = $byHash[$hash]
-        $name = $hash.ToLowerInvariant() + $file.Extension.ToLowerInvariant()
+        $name = $hash.ToLowerInvariant() + $extensions[$type]
         Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $BundleDirectory "packages/$name") -Force
         $originalUrl = $installer.InstallerUrl
         $installer.InstallerUrl = "http://127.0.0.1:__PORT__/packages/$name"
         $selected += $installer
-        $payloads += [ordered]@{ path = "packages/$name"; sha256 = $hash; originalUrl = $originalUrl; installerType = $type }
+        $payloads += [ordered]@{ path = "packages/$name"; sha256 = $hash; originalUrl = $originalUrl; installerType = $type; effectiveInstallerType = $effectiveType }
     }
     if ($selected.Count -ne 1) { throw "$Id : expected one downloaded applicable installer, found $($selected.Count)" }
     $manifest.Installers = $selected

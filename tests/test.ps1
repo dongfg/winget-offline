@@ -36,7 +36,7 @@ try {
     Save-Manifest
     Assert-Throws { ConvertTo-OfflinePackage "$work/download" "$work/bundle" 'Test.App' 'x64' } 'dependencies'
     $data.Installers[0].Remove('Dependencies')
-    $data.Installers[0].InstallerType = 'portable'
+    $data.Installers[0].InstallerType = 'msstore'
     Save-Manifest
     Assert-Throws { ConvertTo-OfflinePackage "$work/download" "$work/bundle" 'Test.App' 'x64' } 'unsupported installer'
     $data.Installers[0].InstallerType = 'msi'

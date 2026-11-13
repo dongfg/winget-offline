@@ -46,6 +46,9 @@ try {
         if ($package.PSObject.Properties['installMode'] -and $package.installMode -cnotin @('silent', 'interactive')) {
             throw "Invalid installMode for $($package.id): $($package.installMode)"
         }
+        if ($package.PSObject.Properties['architecture'] -and $package.architecture -cne $lock.architecture -and -not ($lock.architecture -eq 'x64' -and $package.architecture -ceq 'x86')) {
+            throw "Invalid installer architecture for $($package.id): $($package.architecture)"
+        }
         $path = Get-BundlePath $package.manifest
         if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $package.manifestSha256) { throw "Manifest checksum mismatch: $($package.id)" }
         foreach ($payload in $package.payloads) {
@@ -95,8 +98,9 @@ try {
             [IO.File]::WriteAllText($manifest, $template.Replace('http://127.0.0.1:__PORT__/', "http://127.0.0.1:$port/"), (New-Object Text.UTF8Encoding($false)))
             # Older bundles without this property retain the original silent behavior.
             $installMode = if ($package.PSObject.Properties['installMode']) { $package.installMode } else { 'silent' }
-            Write-Host "Installing $($package.id) $($package.version) ($installMode)..."
-            $arguments = @('install', '--manifest', $manifest, '--architecture', $lock.architecture, '--accept-package-agreements', '--accept-source-agreements', '--skip-dependencies')
+            $packageArchitecture = if ($package.PSObject.Properties['architecture']) { $package.architecture } else { $lock.architecture }
+            Write-Host "Installing $($package.id) $($package.version) ($packageArchitecture, $installMode)..."
+            $arguments = @('install', '--manifest', $manifest, '--architecture', $packageArchitecture, '--accept-package-agreements', '--accept-source-agreements', '--skip-dependencies')
             if ($installMode -eq 'interactive') {
                 $arguments += '--interactive'
             } else {

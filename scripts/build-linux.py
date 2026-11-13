@@ -24,7 +24,8 @@ ROOT = Path(__file__).resolve().parent.parent
 API = "https://api.github.com/repos/microsoft/winget-pkgs"
 RAW = "https://raw.githubusercontent.com/microsoft/winget-pkgs"
 TYPES = {"wix": ".msi", "msi": ".msi", "inno": ".exe", "nullsoft": ".exe",
-         "burn": ".exe", "exe": ".exe", "msix": ".msix"}
+         "burn": ".exe", "exe": ".exe", "msix": ".msix", "appx": ".msix",
+         "portable": ".exe", "zip": ".zip"}
 TYPE_ORDER = {name: index for index, name in enumerate(TYPES)}
 STRING_FIELDS = {"PackageVersion", "MinimumVersion", "DisplayVersion", "MinimumOSVersion",
                  "InstallerSha256", "SignatureSha256"}
@@ -76,11 +77,17 @@ def download(url, destination, expected_hash=None):
     for attempt in range(3):
         try:
             digest = hashlib.sha256()
+            received = 0
+            last_progress = time.monotonic()
             request = Request(url, headers={"User-Agent": "winget-offline-linux"})
             with urlopen(request, timeout=120) as response, destination.open("wb") as output:
                 while chunk := response.read(1024 * 1024):
                     digest.update(chunk)
                     output.write(chunk)
+                    received += len(chunk)
+                    if time.monotonic() - last_progress >= 30:
+                        print(f"  {destination.name}: {received // (1024 * 1024)} MiB downloaded", flush=True)
+                        last_progress = time.monotonic()
             if expected_hash and digest.hexdigest().lower() != expected_hash.lower():
                 raise ValueError(f"Installer SHA256 mismatch: {destination.name}")
             return
@@ -171,7 +178,13 @@ def select_installer(manifest, package, architecture):
         scope, locale = effective.get("Scope"), effective.get("InstallerLocale", "").lower()
         if arch not in {architecture, "neutral"} or kind not in TYPES:
             continue
-        if package.get("scope") and scope != package["scope"]:
+        nested_type = effective.get("NestedInstallerType") if kind == "zip" else None
+        if kind == "zip" and (nested_type not in TYPES or nested_type == "zip"
+                              or not effective.get("NestedInstallerFiles")):
+            continue
+        effective_type = nested_type or kind
+        if (package.get("scope") and scope != package["scope"]
+                and not (scope is None and effective_type == "portable")):
             continue
         if package.get("installerType") and kind != package["installerType"]:
             continue
@@ -188,7 +201,8 @@ def select_installer(manifest, package, architecture):
     if not candidates:
         raise ValueError(
             f"{package['id']}: no supported dependency-free installer matches architecture, "
-            "scope, installerType and locale; portable, ZIP, Store and authenticated downloads are excluded"
+            "scope, installerType and locale; ZIP requires supported NestedInstallerType "
+            "and NestedInstallerFiles; Store and authenticated downloads are excluded"
         )
     best = min(item[0] for item in candidates)
     matches = [item for item in candidates if item[0] == best]
@@ -211,7 +225,7 @@ def validate_config(config):
             raise ValueError(f"Duplicate package: {identifier}")
         seen.add(identifier.lower())
         for key, value in package.items():
-            if key not in {"id", "version", "scope", "installerType", "locale", "installMode"}:
+            if key not in {"id", "version", "scope", "installerType", "locale", "installMode", "architecture"}:
                 raise ValueError(f"Unknown package option: {key}")
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{identifier}: {key} must be a non-empty string")
@@ -219,6 +233,9 @@ def validate_config(config):
             raise ValueError(f"{identifier}: invalid scope")
         if package.get("installMode", "silent") not in {"silent", "interactive"}:
             raise ValueError(f"{identifier}: installMode must be silent or interactive")
+        architecture = package.get("architecture", config["architecture"])
+        if architecture != config["architecture"] and not (config["architecture"] == "x64" and architecture == "x86"):
+            raise ValueError(f"{identifier}: architecture must match the bundle, or be x86 for an x64 bundle")
         if "version" in package and any(c in package["version"] for c in ("/", "\\")):
             raise ValueError(f"{identifier}: invalid version path")
         if "installerType" in package and package["installerType"] not in TYPES:
@@ -244,7 +261,12 @@ def build(config_path, output_directory):
             source.mkdir()
             version, documents = load_manifests(package, snapshot, source)
             manifest = singleton(documents)
-            installer, kind = select_installer(manifest, package, config["architecture"])
+            architecture = package.get("architecture", config["architecture"])
+            installer, kind = select_installer(manifest, package, architecture)
+            effective_type = (installer.get("NestedInstallerType", manifest.get("NestedInstallerType"))
+                              if kind == "zip" else kind)
+            # The Windows entry point runs elevated; portable user scope rejects elevated tokens.
+            scope = package.get("scope", "machine" if effective_type == "portable" else None)
             digest = installer.get("InstallerSha256", "")
             if not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
                 raise ValueError(f"{identifier}: invalid InstallerSha256")
@@ -261,10 +283,11 @@ def build(config_path, output_directory):
             lock["packages"].append({
                 "id": identifier, "version": version, "manifest": manifest_path,
                 "manifestSha256": hashlib.sha256((bundle / manifest_path).read_bytes()).hexdigest(),
-                "scope": package.get("scope"),
+                "scope": scope,
+                "architecture": architecture,
                 "installMode": package.get("installMode", "silent"),
                 "payloads": [{"path": payload, "sha256": digest, "originalUrl": original_url,
-                              "installerType": kind}],
+                              "installerType": kind, "effectiveInstallerType": effective_type}],
             })
         (bundle / "packages.json").write_text(json.dumps(lock, ensure_ascii=False, indent=2), encoding="utf-8")
         for name in ("install.ps1", "server.ps1", "install.cmd"):

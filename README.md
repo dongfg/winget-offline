@@ -17,7 +17,9 @@
 }
 ```
 
-默认下载 x64 安装器。`architecture` 也支持 `x86`、`arm64`，需要与目标 Windows 系统架构一致。
+仓库默认包含 33 个软件：图形应用使用交互式安装，命令行和后台工具使用静默安装；Git 为交互式，ChatGPT 和 7-Zip 为静默，VS Code 使用 `scope: user`。可以按需删改软件列表。
+
+顶层 `architecture` 默认是 `x64`，也支持 `x86`、`arm64`，需要与目标 Windows 系统架构一致。软件默认使用相同架构；x64 离线包允许个别软件显式指定 `"architecture": "x86"`，例如当前 BCUninstaller。整个 ZIP 仍是 `winget-offline-x64.zip`，不会切换成 x86 包。
 
 | 软件配置项 | 说明 |
 | --- | --- |
@@ -25,12 +27,13 @@
 | `version` | 可选，字符串，指定要下载的版本；CNB 省略时选择最新数字版本，特殊版本号需明确指定 |
 | `scope` | 可选，`user` 或 `machine`，分别表示当前用户安装和所有用户安装 |
 | `installMode` | 可选，`silent`（默认）或 `interactive`；后者显示安装向导，供你手动选择组件 |
+| `architecture` | 可选，单个软件的安装器架构；默认继承顶层配置，x64 包可指定 `x86` 兼容安装器 |
 | `installerType` | 可选，筛选安装器类型，例如 `inno`、`exe`、`msi`、`wix`；CNB 必须与清单类型完全一致 |
 | `locale` | 可选，筛选安装器语言，例如 `zh-CN`、`en-US` |
 
-可选字段需要软件本身支持。优先选择完整安装器；当前不支持 Microsoft Store、portable、ZIP 安装器及声明了额外依赖的安装器。无法确定安装器或校验失败时，构建会报错。
+可选字段需要软件本身支持。支持 EXE、MSI/WiX、MSIX/APPX、单文件 portable，以及清单已声明内部安装器类型和路径的 ZIP。ZIP 原样下载并校验 SHA256，解压和安装由 WinGet 完成，上游的命令别名会保留。仍不支持 Microsoft Store、需要额外认证或声明了额外依赖的安装器；无法确定安装器或校验失败时，构建会报错。
 
-例如上面的 Git 配置会显示安装向导，可取消右键菜单集成等选项；其他软件未设置 `installMode`，仍为静默安装。仓库默认配置保持全部静默，需要时将对应软件的 `installMode` 改为 `interactive`，再重新构建下载。
+例如上面的 Git 配置会显示安装向导，可取消右键菜单集成等选项；省略 `installMode` 的软件默认静默安装。修改模式后需重新构建下载。Portable 工具通常没有安装向导；由于安装入口会提权，它们未指定 `scope` 时按 `machine` 范围安装，并由 WinGet 注册命令。安装完成后，可能需要重新打开终端使 PATH 更新生效。
 
 使用自己的 CNB 仓库时，将 `.cnb.yml` 下载步骤中的 `imports` 改为自己的密钥文件地址，文件内容为：
 
