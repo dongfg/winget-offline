@@ -15,6 +15,7 @@ master:
           script: sh scripts/cnb-prepare-linux.sh
           timeout: 15m
         - name: Download and pack
+          imports: https://cnb.cool/dongfg/envs/-/blob/main/github.yaml
           script: .work/cnb-python/bin/python scripts/build-linux.py
           timeout: 60m
         - name: Upload build attachment and publish timestamped release
