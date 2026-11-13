@@ -57,9 +57,11 @@ try {
                 $download = Join-Path $using:work "$($package.id)/attempt-$attempt"
                 try {
                     Write-Host "[$($package.id)] Starting download (attempt $attempt/2)..."
+                    $downloadTimer = [Diagnostics.Stopwatch]::StartNew()
                     & $using:wingetPath @arguments --download-directory $download
                     if ($LASTEXITCODE -ne 0) { throw "WinGet exited with $LASTEXITCODE" }
                     $completed[$package.id] = $download
+                    Write-Host "[$($package.id)] Download completed in $([Math]::Round($downloadTimer.Elapsed.TotalSeconds, 1)) seconds."
                     break
                 } catch {
                     if ($attempt -eq 2) { throw }
@@ -77,7 +79,9 @@ try {
     }
     # Merge only after all workers finish, in configuration order. Shared payload hashes
     # are copied serially to avoid concurrent writes when two packages share a file.
+    Write-Host 'All downloads completed. Verifying and copying packages into the bundle...'
     foreach ($package in $configData.packages) {
+        Write-Host "[$($package.id)] Verifying and copying..."
         $download = $downloadDirectories[$package.id]
         $packageArchitecture = if ($package.ContainsKey('architecture')) { $package.architecture } else { $configData.architecture }
         $entry = ConvertTo-OfflinePackage $download $bundle $package.id $packageArchitecture
@@ -92,7 +96,9 @@ try {
     # .NET ZipFile supports ZIP64 and large installers, unlike Compress-Archive's 2 GB limit.
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $temporaryZip = Join-Path $work 'bundle.zip'
+    Write-Host 'Compressing bundle ZIP...'
     [IO.Compression.ZipFile]::CreateFromDirectory($bundle, $temporaryZip, [IO.Compression.CompressionLevel]::Fastest, $false)
+    Write-Host "Compression completed: $((Get-Item -LiteralPath $temporaryZip).Length) bytes."
     & "$PSScriptRoot/split-bundle.ps1" -Archive $temporaryZip -ArchiveName "winget-offline-$($configData.architecture).zip" -OutputDirectory $OutputDirectory
 } finally {
     # Only delete this invocation's freshly generated temp directory.

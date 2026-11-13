@@ -7,18 +7,20 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$partSize = 1GB # PowerShell's GB unit is 1024^3 bytes (1 GiB).
+[long]$partSize = 1GB # PowerShell's GB unit is 1024^3 bytes (1 GiB).
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 if (@(Get-ChildItem -LiteralPath $OutputDirectory -Force).Count -ne 0) {
     throw 'Output directory must be empty to avoid mixing builds.'
 }
 $source = Get-Item -LiteralPath $Archive
+Write-Host "Hashing complete ZIP ($($source.Length) bytes) before splitting..."
 $manifest = [ordered]@{
     schemaVersion = 1; archive = $ArchiveName; size = $source.Length
     sha256 = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash.ToLowerInvariant()
     parts = @()
 }
 $inputStream = [IO.File]::OpenRead($source.FullName)
+Write-Host 'Splitting ZIP into 1 GiB chunks...'
 try {
     $buffer = [byte[]]::new(4MB)
     $index = 1
@@ -27,9 +29,11 @@ try {
         $path = Join-Path $OutputDirectory $name
         $outputStream = [IO.File]::Create($path)
         try {
-            [long]$remaining = [Math]::Min($partSize, $inputStream.Length - $inputStream.Position)
+            # Both arguments must be Int64: PowerShell otherwise picks Int32 Min
+            # when the first argument is 1GB, overflowing for archives above 2 GiB.
+            [long]$remaining = [Math]::Min($partSize, [long]($inputStream.Length - $inputStream.Position))
             while ($remaining -gt 0) {
-                $read = $inputStream.Read($buffer, 0, [int][Math]::Min($buffer.Length, $remaining))
+                $read = $inputStream.Read($buffer, 0, [int][Math]::Min([long]$buffer.Length, $remaining))
                 if ($read -eq 0) { throw 'Unexpected end of ZIP.' }
                 $outputStream.Write($buffer, 0, $read)
                 $remaining -= $read

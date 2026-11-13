@@ -337,6 +337,7 @@ def build(config_path, output_directory):
                 # The context manager waits for active workers before temp cleanup.
                 raise
         # Completion order never changes the serial installation order.
+        print("All downloads completed and packages copied. Compressing bundle ZIP...", flush=True)
         lock["packages"] = entries
         (bundle / "packages.json").write_text(json.dumps(lock, ensure_ascii=False, indent=2), encoding="utf-8")
         for name in ("install.ps1", "server.ps1", "install.cmd"):
@@ -350,6 +351,7 @@ def build(config_path, output_directory):
                 if path.is_file():
                     output.write(path, path.relative_to(bundle).as_posix())
         # Both platforms share exactly the same chunk format and Windows bootstrap.
+        print(f"Compression completed: {archive.stat().st_size} bytes.", flush=True)
         subprocess.run([
             "pwsh", "-NoProfile", "-File", str(ROOT / "scripts" / "split-bundle.ps1"),
             "-Archive", str(archive), "-ArchiveName", f"winget-offline-{config['architecture']}.zip",
